@@ -1,0 +1,11 @@
+*.egg-info
+__pycache__/
+.venv
+
+# pyenv
+.python-version
+
+# stdeb
+archy-*.tar.gz
+deb_dist
+dist
