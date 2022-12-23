@@ -1,6 +1,6 @@
 *.egg-info
 __pycache__/
-.venv
+.venv/
 
 # pyenv
 .python-version
@@ -9,3 +9,6 @@ __pycache__/
 archy-*.tar.gz
 deb_dist
 dist
+
+# testing
+.tox/

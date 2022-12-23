@@ -1,1 +1,13 @@
+cachetools==5.2.0
+chardet==5.1.0
+colorama==0.4.6
+distlib==0.3.6
+filelock==3.8.2
+packaging==22.0
+platformdirs==2.6.0
+pluggy==1.0.0
+pyproject-api==1.2.1
 stdeb==0.10.0
+tomli==2.0.1
+tox==4.0.16
+virtualenv==20.17.1

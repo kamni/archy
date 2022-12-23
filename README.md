@@ -19,6 +19,7 @@ available for download. The Debian package does not have to be built, the
 sources are sufficient.
 ```
 
+
 ## Design Decisions
 
 ### What is this project?
@@ -79,3 +80,38 @@ design decisions have been made:
 * Logging file is not configurable, and is set to
   `/var/log/archy/<group-name>.log`. The permissions on the folder will be
   755 (root:root) and the file 644.
+
+
+## Development
+
+This project currently requires Python 3.9.2. For running tests, it's fine to
+use pyenv or another Python version manager, but for building the debian
+packages you need a system Python installation compiled with debian-specific
+support. If you use pyenv and your system version does not match 3.9.2, you may
+want to set the following:
+
+```
+pyenv local system 3.9.2
+```
+
+Local development requires installing the packages in `requirements.txt`:
+
+```
+pip install -r requirements.txt
+```
+
+Please note that we use `stdeb` to build the debian package, and this may
+require the installation of other system packages, such as `fakeroot` and
+`debhelper`.
+
+To run tests:
+
+```
+tox
+```
+
+To build the debian package:
+
+```
+python3 setup.py --command-packages=stdeb.command bdist_deb
+```
