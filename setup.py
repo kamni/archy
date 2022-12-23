@@ -10,7 +10,12 @@ setup(
     author_email='j@jleadbetter.com',
     url='https://github.com/kamni/archy',
     licensce='MIT',
-    install_requires=[],
+    install_requires=[
+        'fasteners==0.18',
+        'filelock==3.8.2',
+        'pydantic==1.10.2',
+        'python-json-logger==2.0.4',
+    ],
     packages=find_packages(exclude=['tests']),
     entry_points={
         'console_scripts': ['archy = archy.main:main'],

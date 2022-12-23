@@ -60,6 +60,10 @@ time), we're going to pretend the following are true:
    having files in system folders. We will not include flags to exclude
    directories from search (e.g., `/proc`), and the script will actively
    complain if it's run with the `/` directory.
+7. Additionally, removal of the interns' personal accounts is assumed to be
+   handled as part of a separate administrative process, so we don't need to
+   (for example) look up each intern's home directory and delete those files
+   if they're located elsewhere in the system.
 
 ### Operating System and Python Version
 
@@ -73,13 +77,16 @@ design decisions have been made:
 
 * The script expects to be run as root and will complain if not run as root.
 * The output archive isn't configurable. It will be set to
-  `/tmp/<group-name>.tgz`.
+  `/tmp/<group-name>.tar`.
 * We won't support compression (bzip, gzip) in this toy project.
-* We will only support Linux file permissions; no ACLs.
-* If the user running the script doesn't have permissions to 
+* We will only support Linux file permissions and groups/users; e.g., no ACLs
+  or LDAP.
+* The user running the script must be root.
+* The script can't be run from `/`; we won't provide any flags for excluding
+  certain folders.
 * Logging file is not configurable, and is set to
-  `/var/log/archy/<group-name>.log`. The permissions on the folder will be
-  755 (root:root) and the file 644.
+  `/var/log/archy/<group-name>.log`. 
+* We won't clean up empty directories after the files have been moved.
 
 
 ## Development
@@ -114,4 +121,11 @@ To build the debian package:
 
 ```
 python3 setup.py --command-packages=stdeb.command bdist_deb
+```
+
+To install the package:
+
+```
+sudo dpkg -i deb_dist/<version>.deb
+sudo apt-get -f install
 ```
