@@ -12,3 +12,4 @@ dist
 
 # testing
 .tox/
+.coverage

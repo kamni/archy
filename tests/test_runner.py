@@ -72,7 +72,7 @@ class ArchiveRunnerTests(unittest.TestCase):
     def setUp(self):
         try:
             pathlib.Path(self.TESTFILE_DIR).mkdir()
-        except FileExistsError:
+        except FileExistsError:  # pragma: no cover
             pass
 
         self.group = self._get_group()
@@ -655,4 +655,4 @@ class ArchiveRunnerTests(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    unittest.main()  # pragma: no cover
