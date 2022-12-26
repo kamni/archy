@@ -1,4 +1,5 @@
 import grp
+import logging
 import os
 import pathlib
 import tarfile
@@ -25,17 +26,6 @@ class LinuxToArchyTests(unittest.TestCase):
             expected_group,
             _linux_group_to_archy_group(linux_group),
         )
-
-
-def _mock_linux_user_call(name='root'):
-    mock_getuser = mock.MagicMock(return_value=name)
-    return mock_getuser
-
-
-def _mock_linux_group_call(id=1500, name='notagroup', members=None):
-    members = members if members is not None else ['user1', 'user2']
-    mock_getgrnam = mock.MagicMock(return_value=(name, 'x', id, members))
-    return mock_getgrnam
 
 
 class ArchiveRunnerTests(unittest.TestCase):
@@ -68,6 +58,15 @@ class ArchiveRunnerTests(unittest.TestCase):
         }
         default.update(kwargs)
         return Group(**default)
+
+    def _mock_linux_user_call(self, name='root'):
+        mock_getuser = mock.MagicMock(return_value=name)
+        return mock_getuser
+
+    def _mock_linux_group_call(self, id=1500, name='notagroup', members=None):
+        members = members if members is not None else ['user1', 'user2']
+        mock_getgrnam = mock.MagicMock(return_value=(name, 'x', id, members))
+        return mock_getgrnam
 
     def setUp(self):
         try:
@@ -118,9 +117,9 @@ class ArchiveRunnerTests(unittest.TestCase):
         pathlib.Path(testfile_name).touch()
 
         tarfile_name = self._get_testfile_name('.tar')
+        expected_files = [testfile_name.split('/', 1)[1]]
         with tarfile.open(tarfile_name, 'a') as tar:
             self.runner._archive_file(testfile_name, tar)
-            expected_files = [testfile_name.split('/', 1)[1]]
             self.assertEqual(expected_files, tar.getnames())
 
     def test_archive_files_for_group_integration(self):
@@ -151,10 +150,10 @@ class ArchiveRunnerTests(unittest.TestCase):
                 set(expected_filenames),
             )
 
-        # Testing deletion
-        files = [filepath for filepath in dirpath.rglob('*')
-                 if filepath.is_file()]
-        self.assertEqual([], files)
+        with self.subTest('Testing deletion'):
+            files = [filepath for filepath in dirpath.rglob('*')
+                     if filepath.is_file()]
+            self.assertEqual([], files)
 
     def test_archive_files_for_group(self):
         group = self._get_group()
@@ -182,8 +181,10 @@ class ArchiveRunnerTests(unittest.TestCase):
                 _open_archive=mock.MagicMock(return_value=mock_tar),
         ):
             self.assertEqual(1, self.runner._archive_files_for_group(group))
-            mock_tar.__enter__().add.assert_called_once_with(file1.as_posix())
-            mock_delete.assert_called_once_with(file1)
+            with self.subTest('Should have archived file1'):
+                mock_tar.__enter__().add.assert_called_once_with(file1.as_posix())
+            with self.subTest('Should have deleted file1'):
+                mock_delete.assert_called_once_with(file1)
 
     def test_archive_files_for_group_no_files(self):
         group = self._get_group()
@@ -220,8 +221,10 @@ class ArchiveRunnerTests(unittest.TestCase):
                 _open_archive=mock.MagicMock(return_value=mock_tar),
         ):
             self.assertEqual(1, self.runner._archive_files_for_group(group))
-            mock_tar.__enter__().add.assert_called_once_with(file1.as_posix())
-            mock_delete.assert_called_once_with(file1)
+            with self.subTest('Should have archived file1'):
+                mock_tar.__enter__().add.assert_called_once_with(file1.as_posix())
+            with self.subTest('Should have deleted file1'):
+                mock_delete.assert_called_once_with(file1)
 
     def test_archive_files_for_group_when_file_errors(self):
         group = self._get_group()
@@ -241,7 +244,7 @@ class ArchiveRunnerTests(unittest.TestCase):
         file2.as_posix.return_value = self._get_testfile_name('-file2.txt')
 
         mock_tar = mock.MagicMock()
-        mock_archive = mock.MagicMock(side_effect=[None, Exception()])
+        mock_archive = mock.MagicMock(side_effect=[Exception(), None])
         mock_delete = mock.MagicMock()
         mock_lock1 = mock.MagicMock()
         mock_lock2 = mock.MagicMock()
@@ -254,10 +257,16 @@ class ArchiveRunnerTests(unittest.TestCase):
                 _open_archive=mock.MagicMock(return_value=mock_tar),
         ):
             self.assertEqual(1, self.runner._archive_files_for_group(group))
-            mock_delete.assert_called_once_with(file1)
-            # Even though file2 errors, it should release both locks
-            mock_lock1.release.assert_called_once()
-            mock_lock2.release.assert_called_once()
+            with self.subTest('Should have tried to archive file1 and file2'):
+                mock_archive.assert_has_calls([
+                    mock.call(file1.as_posix(), mock_tar.__enter__()),
+                    mock.call(file2.as_posix(), mock_tar.__enter__()),
+                ])
+            with self.subTest('Should have only tried to delete file2'):
+                mock_delete.assert_called_once_with(file2)
+            with self.subTest('Even though file1 errors, should have released both locks'):
+                mock_lock1.release.assert_called_once()
+                mock_lock2.release.assert_called_once()
 
     def test_current_user_has_permissions_false(self):
         self.assertFalse(self.runner._current_user_has_permissions('user1'))
@@ -286,7 +295,7 @@ class ArchiveRunnerTests(unittest.TestCase):
 
     def test_get_current_user(self):
         expected_user = 'root'
-        mock_getuser = _mock_linux_user_call(expected_user)
+        mock_getuser = self._mock_linux_user_call(expected_user)
         with mock.patch('getpass.getuser', mock_getuser):
             self.assertEqual(expected_user, self.runner._get_current_user())
 
@@ -337,14 +346,14 @@ class ArchiveRunnerTests(unittest.TestCase):
             self.assertEqual(expected_files, self.runner._get_files())
 
     def test_get_group_exists_true_no_members(self):
-        mock_getgrnam = _mock_linux_group_call(members=[])
+        mock_getgrnam = self._mock_linux_group_call(members=[])
         expected_group = self._get_group(members=[])
         with mock.patch('grp.getgrnam', mock_getgrnam):
             print('foo')
             self.assertEqual(expected_group, self.runner._get_group())
 
     def test_get_group_exists_true_with_members(self):
-        mock_getgrnam = _mock_linux_group_call()
+        mock_getgrnam = self._mock_linux_group_call()
         expected_group = self._get_group()
         with mock.patch('grp.getgrnam', mock_getgrnam):
             self.assertEqual(expected_group, self.runner._get_group())
@@ -377,6 +386,32 @@ class ArchiveRunnerTests(unittest.TestCase):
         expected_name = 'foo-bar.lock'
         self.assertEqual(expected_name, runner._get_lockfile_name())
 
+    def test_get_log_extra(self):
+        level = logging.DEBUG
+        extra = {'foo': 1, 'bar': 2}
+        expected = {
+            'foo': 1,
+            'bar': 2,
+            'level': 'DEBUG',
+            'group': self.runner.group_name,
+            'dirname': self.runner.base_dir,
+            'destination_tar': self.runner._get_tarfile_name(),
+        }
+        self.assertEqual(expected, self.runner._get_log_extra(extra, level))
+
+    def test_get_log_extra_unknown_level(self):
+        level = -1
+        extra = {'foo': 1, 'bar': 2}
+        expected = {
+            'foo': 1,
+            'bar': 2,
+            'level': 'NOTSET',
+            'group': self.runner.group_name,
+            'dirname': self.runner.base_dir,
+            'destination_tar': self.runner._get_tarfile_name(),
+        }
+        self.assertEqual(expected, self.runner._get_log_extra(extra, level))
+
     def test_get_logfile_name_specified_base(self):
         runner = self._get_runner(
             group_name='testgroup',
@@ -390,7 +425,7 @@ class ArchiveRunnerTests(unittest.TestCase):
             group_name='testgroup',
             logfile_base='foo-bar.log',
         )
-        expected_name='foo-bar.log'
+        expected_name = 'foo-bar.log'
         self.assertEqual(expected_name, runner._get_logfile_name())
 
     def test_get_tarfile_name_default(self):
@@ -426,28 +461,66 @@ class ArchiveRunnerTests(unittest.TestCase):
         runner = self._get_runner(base_dir='/home')
         self.assertFalse(runner._is_root_directory())
 
+    def test_log(self):
+        runner = self._get_runner()
+        runner.logger = mock.MagicMock()
+        runner._log(logging.DEBUG, 'foo: %s', 'bar', foo='bar')
+        runner.logger.log.assert_called_once_with(
+            logging.DEBUG,
+            'foo: %s',
+            'bar',
+            extra=runner._get_log_extra({'foo': 'bar'}, logging.DEBUG),
+        )
+
+    def test_log_logger_not_instantiated(self):
+        runner = self._get_runner()
+        self.assertIsNone(runner.logger)
+        mock_logger = mock.MagicMock()
+        with mock.patch(
+                'archy.runner.ArchiveRunner._get_logger',
+                mock.MagicMock(return_value=mock_logger),
+        ):
+            runner._log(logging.ERROR, 'foo')
+            mock_logger.log.assert_called_once_with(
+                logging.ERROR,
+                'foo',
+                extra=runner._get_log_extra({}, logging.ERROR),
+            )
+
     def test_log_debug(self):
         runner = self._get_runner()
         runner.logger = mock.MagicMock()
         runner._log_debug('%s: %s', 1, 2, foo=1, bar=2)
-        runner.logger.debug.assert_called_once_with(
-            '%s: %s', 1, 2, extra={'foo': 1, 'bar': 2, 'level': 'DEBUG'},
+        expected_extra = runner._get_log_extra(
+            {'foo': 1, 'bar': 2},
+            logging.DEBUG,
+        )
+        runner.logger.log.assert_called_once_with(
+            logging.DEBUG, '%s: %s', 1, 2, extra=expected_extra,
         )
 
     def test_log_error(self):
         runner = self._get_runner()
         runner.logger = mock.MagicMock()
         runner._log_error('%s: %s', 1, 2, foo=1, bar=2)
-        runner.logger.error.assert_called_once_with(
-            '%s: %s', 1, 2, extra={'foo': 1, 'bar': 2, 'level': 'ERROR'},
+        expected_extra = runner._get_log_extra(
+            {'foo': 1, 'bar': 2},
+            logging.ERROR,
+        )
+        runner.logger.log.assert_called_once_with(
+            logging.ERROR, '%s: %s', 1, 2, extra=expected_extra,
         )
 
     def test_log_info(self):
         runner = self._get_runner()
         runner.logger = mock.MagicMock()
         runner._log_info('%s: %s', 1, 2, foo=1, bar=2)
-        runner.logger.info.assert_called_once_with(
-            '%s: %s', 1, 2, extra={'foo': 1, 'bar': 2, 'level': 'INFO'},
+        expected_extra = runner._get_log_extra(
+            {'foo': 1, 'bar': 2},
+            logging.INFO,
+        )
+        runner.logger.log.assert_called_once_with(
+            logging.INFO, '%s: %s', 1, 2, extra=expected_extra,
         )
 
     def test_open_archive_integration(self):
@@ -522,22 +595,17 @@ class ArchiveRunnerTests(unittest.TestCase):
         file1.group.return_value = 'some_group'
         self.assertFalse(self.runner._should_archive(file1, self.group))
 
-    def test_run_user_has_permission(self):
-        mock_logger = mock.MagicMock()
+    def test_run_user_doesnt_have_permission(self):
         with mock.patch.multiple(
                 'archy.runner.ArchiveRunner',
                 _get_current_user=mock.MagicMock(return_value='user'),
                 _is_root_directory=mock.MagicMock(return_value=False),
                 _directory_exists=mock.MagicMock(return_value=True),
                 _get_group=mock.MagicMock(return_value=self._get_group()),
-                _acquire_process_lock=mock.MagicMock(return_value=True),
-                _log_error=mock_logger,
         ):
             self.assertRaises(SystemExit, self.runner.run)
-            mock_logger.assert_called_once_with(
-                'Non-root user tried to run archy',
-                user='user',
-            )
+            with self.subTest('No process lock should have been acquired'):
+                self.assertIsNone(self.runner.lock)
 
     def test_run_is_root_directory(self):
         with mock.patch.multiple(
@@ -546,9 +614,10 @@ class ArchiveRunnerTests(unittest.TestCase):
                 _is_root_directory=mock.MagicMock(return_value=True),
                 _directory_exists=mock.MagicMock(return_value=True),
                 _get_group=mock.MagicMock(return_value=self._get_group()),
-                _acquire_process_lock=mock.MagicMock(return_value=True),
         ):
             self.assertRaises(SystemExit, self.runner.run)
+            with self.subTest('No process lock should have been acquired'):
+                self.assertIsNone(self.runner.lock)
 
     def test_run_directory_doesnt_exist(self):
         with mock.patch.multiple(
@@ -557,9 +626,10 @@ class ArchiveRunnerTests(unittest.TestCase):
                 _is_root_directory=mock.MagicMock(return_value=False),
                 _directory_exists=mock.MagicMock(return_value=False),
                 _get_group=mock.MagicMock(return_value=self._get_group()),
-                _acquire_process_lock=mock.MagicMock(return_value=True),
         ):
             self.assertRaises(SystemExit, self.runner.run)
+            with self.subTest('No process lock should have been acquired'):
+                self.assertIsNone(self.runner.lock)
 
     def test_run_group_doesnt_exist(self):
         with mock.patch.multiple(
@@ -568,9 +638,10 @@ class ArchiveRunnerTests(unittest.TestCase):
                 _is_root_directory=mock.MagicMock(return_value=False),
                 _directory_exists=mock.MagicMock(return_value=True),
                 _get_group=mock.MagicMock(return_value=None),
-                _acquire_process_lock=mock.MagicMock(return_value=True),
         ):
             self.assertRaises(SystemExit, self.runner.run)
+            with self.subTest('No process lock should have been acquired'):
+                self.assertIsNone(self.runner.lock)
 
     def test_run_cant_acquire_process_lock(self):
         with mock.patch.multiple(
@@ -580,18 +651,6 @@ class ArchiveRunnerTests(unittest.TestCase):
                 _directory_exists=mock.MagicMock(return_value=True),
                 _get_group=mock.MagicMock(return_value=self._get_group()),
                 _acquire_process_lock=mock.MagicMock(return_value=False),
-        ):
-            self.assertRaises(SystemExit, self.runner.run)
-
-    def test_run_no_files(self):
-        with mock.patch.multiple(
-                'archy.runner.ArchiveRunner',
-                _current_user_has_permissions=mock.MagicMock(return_value=True),
-                _is_root_directory=mock.MagicMock(return_value=False),
-                _directory_exists=mock.MagicMock(return_value=True),
-                _get_group=mock.MagicMock(return_value=self._get_group()),
-                _acquire_process_lock=mock.MagicMock(return_value=True),
-                _get_files=mock.MagicMock(return_value=[]),
         ):
             self.assertRaises(SystemExit, self.runner.run)
 
@@ -613,9 +672,28 @@ class ArchiveRunnerTests(unittest.TestCase):
                 _open_archive=mock.MagicMock(side_effect=Exception()),
         ):
             self.runner.run()
-            # It should have released the process lock
-            self.assertIsNotNone(self.runner.lock)
-            self.assertFalse(self.runner.lock.acquired)
+            with self.subTest('It should have released the process lock'):
+                self.assertIsNotNone(self.runner.lock)
+                self.assertFalse(self.runner.lock.acquired)
+
+    def test_run_no_files(self):
+        with mock.patch.multiple(
+                'archy.runner.ArchiveRunner',
+                _current_user_has_permissions=mock.MagicMock(return_value=True),
+                _is_root_directory=mock.MagicMock(return_value=False),
+                _directory_exists=mock.MagicMock(return_value=True),
+                _get_group=mock.MagicMock(return_value=self._get_group()),
+                _get_files=mock.MagicMock(return_value=[]),
+        ):
+            self.runner.run()
+            with self.subTest('It should have released the process lock'):
+                self.assertIsNotNone(self.runner.lock)
+                self.assertFalse(self.runner.lock.acquired)
+            with self.subTest('The archive should exist, but be empty'):
+                tarfile_name = self.runner._get_tarfile_name()
+                self.assertTrue(pathlib.Path(tarfile_name).exists())
+                with tarfile.open(tarfile_name, 'r') as tar:
+                    self.assertEqual([], tar.getmembers())
 
     def test_run(self):
         group = self._get_group()
@@ -647,11 +725,13 @@ class ArchiveRunnerTests(unittest.TestCase):
                 _open_archive=mock.MagicMock(return_value=mock_tar),
         ):
             self.runner.run()
-            mock_tar.__enter__().add.assert_called_once_with(file1.as_posix())
-            mock_delete.assert_called_once_with(file1)
-            # It should have released the process lock
-            self.assertIsNotNone(self.runner.lock)
-            self.assertFalse(self.runner.lock.acquired)
+            with self.subTest('Should have archived file1'):
+                mock_tar.__enter__().add.assert_called_once_with(file1.as_posix())
+            with self.subTest('Should have deleted file1'):
+                mock_delete.assert_called_once_with(file1)
+            with self.subTest('It should have released the process lock'):
+                self.assertIsNotNone(self.runner.lock)
+                self.assertFalse(self.runner.lock.acquired)
 
 
 if __name__ == '__main__':

@@ -7,7 +7,7 @@ import os
 
 __all__ = ['main']
 
-_VERSION_ = '0.2.0'
+_VERSION_ = '0.3.0'
 _DESCRIPTION_ = """
 Command line tool for archiving files based on group membership.
 The files belonging to group members will be moved from their current location

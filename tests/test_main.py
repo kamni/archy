@@ -1,7 +1,8 @@
 import unittest
 from unittest import mock
 
-from archy.main import _parse_args
+from archy.main import _parse_args, main
+
 
 class ParseArgsTests(unittest.TestCase):
     """
@@ -60,6 +61,32 @@ class ParseArgsTests(unittest.TestCase):
         with mock.patch('sys.argv', sys_args):
             cmd_args = _parse_args()
             self.assertTrue(cmd_args.force)
+
+
+class MainTests(unittest.TestCase):
+    """
+    Basic tests for main.main
+    """
+    def test_no_args(self):
+        self.assertRaises(SystemExit, main)
+
+    def test_minimal_args(self):
+        sys_args = ['archy', 'groupname']
+        cwd = '/home'
+        mock_getcwd = mock.MagicMock()
+        mock_getcwd.return_value = cwd
+        mock_runner = mock.MagicMock()
+        mock_ArchiveRunner = mock.MagicMock(return_value=mock_runner)
+        with mock.patch('sys.argv', sys_args):
+            with mock.patch('os.getcwd', mock_getcwd):
+                with mock.patch('archy.runner.ArchiveRunner', mock_ArchiveRunner):
+                    main()
+                    mock_ArchiveRunner.assert_called_with(
+                        'groupname',
+                        '/home',
+                        False,
+                    )
+                    mock_runner.run.assert_called()
 
 
 if __name__ == '__main__':

@@ -51,6 +51,22 @@ class ExtraStreamHandlerTests(unittest.TestCase):
         expected = {}
         self.assertEqual(expected, handler._get_extra(record))
 
+    def test_get_extra_exclude_extra(self):
+        handler = ExtraStreamHandler(exclude_extra=['foo'])
+        record = logging.LogRecord(
+            name='foo',
+            level=logging.DEBUG,
+            pathname='/tmp/archy-test.py',
+            lineno=123,
+            msg='This is a test',
+            args=(),
+            exc_info=(),
+        )
+        record.__dict__['foo'] = 1
+        record.__dict__['bar'] = 2
+        expected = {'bar': 2}
+        self.assertEqual(expected, handler._get_extra(record))
+
     def test_format(self):
         handler = ExtraStreamHandler()
         formatter = logging.Formatter('%(levelname)s: %(message)s')

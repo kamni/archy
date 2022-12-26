@@ -11,10 +11,10 @@ setup(
     url='https://github.com/kamni/archy',
     licensce='MIT',
     install_requires=[
-        'fasteners==0.18',
+        'fasteners==0.14.1',
         'filelock==3.8.2',
-        'pydantic==1.10.2',
-        'python-json-logger==2.0.4',
+        'pydantic==1.7.4',
+        'python-json-logger==2.0.1',
     ],
     packages=find_packages(exclude=['tests']),
     entry_points={

@@ -2,11 +2,10 @@
 Custom logging classes for Archy
 """
 import logging
-from typing import Dict
+from typing import Any, Dict, List, Optional
+
 
 __all__ = ['ExtraStreamHandler']
-
-
 
 
 class ExtraStreamHandler(logging.StreamHandler):
@@ -15,11 +14,15 @@ class ExtraStreamHandler(logging.StreamHandler):
     """
     LOGGING_RESERVED_ATTRS = (
         'args', 'asctime', 'created', 'exc_info', 'exc_text', 'filename',
-        'funcName', 'level', 'levelname', 'levelno', 'lineno', 'module',
+        'funcName', 'levelname', 'levelno', 'lineno', 'module',
         'msecs', 'message', 'msg', 'name', 'pathname', 'process',
         'processName', 'relativeCreated', 'stack_info', 'thread', 'threadName',
     )
     SEPARATOR = ' | '
+
+    def __init__(self, stream: Any = None, exclude_extra: Optional[List[str]] = None):
+        super().__init__(stream=stream)
+        self.exclude_extra = exclude_extra or []
 
     def _format_extra(self, extra: Dict) -> str:
         items = [
@@ -34,7 +37,8 @@ class ExtraStreamHandler(logging.StreamHandler):
         extras = {}
         for key, value in record.__dict__.items():
             if (key not in self.LOGGING_RESERVED_ATTRS and
-                not (hasattr(key, 'startswith') and key.startswith('_'))):
+                    key not in self.exclude_extra and
+                    not (hasattr(key, 'startswith') and key.startswith('_'))):
                 extras[key] = value
         return extras
 

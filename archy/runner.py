@@ -2,14 +2,13 @@ import getpass
 import grp
 import logging
 import pathlib
-import pwd
 import sys
 import tarfile
-from typing import Any, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
-import fasteners
+import fasteners  # type: ignore[import]
 from pydantic import BaseModel
-from pythonjsonlogger import jsonlogger
+from pythonjsonlogger import jsonlogger  # type: ignore[import]
 
 from .logger import ExtraStreamHandler
 
@@ -58,7 +57,7 @@ class ArchiveRunner:
         self.tarfile_base = tarfile_base
 
         self.lock: Optional[fasteners.InterProcessLock] = None
-        self.logger = self._get_logger()
+        self.logger: Optional[logging.Logger] = None
 
     def _acquire_process_lock(self) -> bool:
         if self.force_archive:
@@ -191,7 +190,7 @@ class ArchiveRunner:
         # whether there are alternatives that would give an error.
         return pathlib.Path(self.base_dir).rglob('*')
 
-    def _get_group(self) -> Group:
+    def _get_group(self) -> Optional[Group]:
         try:
             linux_group = grp.getgrnam(self.group_name)
             return _linux_group_to_archy_group(linux_group)
@@ -205,6 +204,28 @@ class ArchiveRunner:
         except TypeError:
             return self.lockfile_base
 
+    def _get_log_extra(self, extra_kwargs: Dict, loglevel: int) -> Dict:
+        # TODO: this is manually added, because right now there doesn't
+        # seem to be a way to add levelname to pythonjsonlogger, which seems
+        # odd. Do some more research into the 2.0.1 docs to see if we're
+        # missing something.
+        level_str = {
+            logging.DEBUG: 'DEBUG',
+            logging.INFO: 'INFO',
+            logging.ERROR: 'ERROR',
+            logging.CRITICAL: 'CRITICAL',
+        }.get(loglevel, 'NOTSET')
+        # pythonjsonlogger has a `static_fields` option in 3.0.4 that allows
+        # us to add these automatically. Unfortunately, it's not yet supported
+        # in 2.0.1, which is the debian version.
+        extra_kwargs.update({
+            'level': level_str,
+            'group': self.group_name,
+            'dirname': self.base_dir,
+            'destination_tar': self._get_tarfile_name(),
+        })
+        return extra_kwargs
+
     def _get_logfile_name(self):
         try:
             return self.logfile_base % self.group_name
@@ -217,8 +238,11 @@ class ArchiveRunner:
         logger.setLevel(logging.DEBUG)
 
         # For logging to the console while running
-        cmdln_handler = ExtraStreamHandler(sys.stdout)
-        cmdln_handler.setLevel(logging.ERROR)
+        cmdln_handler = ExtraStreamHandler(
+            stream=sys.stdout,
+            exclude_extra=['level', 'group', 'dirname', 'destination_tar'],
+        )
+        cmdln_handler.setLevel(logging.INFO)
         cmdln_formatter = logging.Formatter(
             '[%(levelname)s] %(message)s',
         )
@@ -228,14 +252,7 @@ class ArchiveRunner:
         # For longer-term records, let's use structured logging
         file_handler = logging.FileHandler(self._get_logfile_name())
         file_handler.setLevel(logging.DEBUG)
-        file_formatter = jsonlogger.JsonFormatter(
-            static_fields={
-                'group': self.group_name,
-                'dirname': self.base_dir,
-                'destination_tar': self._get_tarfile_name(),
-            },
-            timestamp=True,
-        )
+        file_formatter = jsonlogger.JsonFormatter(timestamp=True)
         file_handler.setFormatter(file_formatter)
         logger.addHandler(file_handler)
 
@@ -250,17 +267,26 @@ class ArchiveRunner:
     def _is_root_directory(self) -> bool:
         return pathlib.Path('/') == pathlib.Path(self.base_dir)
 
+    def _log(self, loglevel: int, msg: str, *args, **kwargs):
+        extra = self._get_log_extra(kwargs, loglevel)
+        try:
+            self.logger.log(loglevel, msg, *args, extra=extra)  # type: ignore[union-attr]
+        except AttributeError:
+            # We don't actually instantiate the logger until the first time
+            # it is used. This is to prevent permissions errors when creating
+            # an instance of the class, when the logger points to a file where
+            # the user has insufficient permissions.
+            self.logger = self._get_logger()
+            self.logger.log(loglevel, msg, *args, extra=extra)
+
     def _log_debug(self, msg: str, *args, **kwargs):
-        kwargs['level'] = 'DEBUG'
-        self.logger.debug(msg, *args, extra=kwargs)
+        self._log(logging.DEBUG, msg, *args, **kwargs)
 
     def _log_error(self, msg: str, *args, **kwargs):
-        kwargs['level'] = 'ERROR'
-        self.logger.error(msg, *args, extra=kwargs)
+        self._log(logging.ERROR, msg, *args, **kwargs)
 
     def _log_info(self, msg: str, *args, **kwargs):
-        kwargs['level'] = 'INFO'
-        self.logger.info(msg, *args, extra=kwargs)
+        self._log(logging.INFO, msg, *args, **kwargs)
 
     def _open_archive(self, tarfile_name: str):
         # Design Decision: we always want to open this as append, so if we
@@ -298,31 +324,27 @@ class ArchiveRunner:
     def run(self):
         user = self._get_current_user()
         if not self._current_user_has_permissions(user):
-            # Possibly a security issue. Let's log this.
-            self._log_error(
-                'Non-root user tried to run archy',
-                user=user,
-            )
-            sys.exit('ERROR: Please run archy as root')
+            sys.exit('[ERROR] Please run archy as root')
 
         if self._is_root_directory():
             sys.exit(
-                ('ERROR: Archy is not safe to run from the root directory. '
+                ('[ERROR] Archy is not safe to run from the root directory. '
                  'Please specify --base-dir'),
             )
         if not self._directory_exists():
-            sys.exit(f'ERROR: Invalid directory: {self.base_dir}')
+            sys.exit(f'[ERROR] Invalid directory: {self.base_dir}')
 
         group = self._get_group()
         if not group:
-            sys.exit(f'Invalid group name: {self.group_name}')
+            sys.exit(f'[ERROR] Invalid group name: {self.group_name}')
 
         if not self._acquire_process_lock():
             sys.exit(
-                ('ERROR: Another archy process is already running for this '
+                ('[ERROR] Another archy process is already running for this '
                  'group. Wait for it to finish, or use --force to run anyhow.'),
             )
 
+        self._log_info('Beginning archive')
         archived_file_count = -1
         try:
             archived_file_count = self._archive_files_for_group(group)
@@ -332,7 +354,10 @@ class ArchiveRunner:
             self._release_process_lock()
 
         if archived_file_count == 0:
-            sys.exit(
-                (f'No files for group {self.group_name} found in '
-                 f'directory {self.base_dir}'),
+            self._log_error(
+                'No files for group %s found in directory %s',
+                self.group_name,
+                self.base_dir,
             )
+        else:
+            self._log_info('Archiving completed')
