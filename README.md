@@ -111,11 +111,24 @@ Please note that we use `stdeb` to build the debian package, and this may
 require the installation of other system packages, such as `fakeroot` and
 `debhelper`.
 
+
+### Testing
+
 To run tests:
 
 ```
 tox
 ```
+
+There is also a Docker image provided for testing, with some files ready for
+archiving:
+```
+docker build -t archy .
+docker run --rm -it archy
+archy group1
+```
+
+### Building the .deb
 
 To build the debian package:
 
@@ -129,3 +142,4 @@ To install the package:
 sudo dpkg -i deb_dist/<version>.deb
 sudo apt-get -f install
 ```
+
