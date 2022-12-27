@@ -47,6 +47,13 @@ def _parse_args():
         action='store_true',
         help='Force archiving of group, even if another process is running'
     )
+    parser.add_argument(
+        '-V',
+        '--version',
+        action='store_true',
+        default='false',
+        help='Display the version of archy'
+    )
     return parser.parse_args()
 
 
@@ -57,9 +64,12 @@ def main():
     from .runner import ArchiveRunner
 
     args = _parse_args()
-    runner = ArchiveRunner(
-        args.group,
-        args.base_dir,
-        args.force,
-    )
-    runner.run()
+    if args.version:
+        print(_VERSION_)
+    else:
+        runner = ArchiveRunner(
+            args.group,
+            args.base_dir,
+            args.force,
+        )
+        runner.run()
